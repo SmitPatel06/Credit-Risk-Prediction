@@ -1,0 +1,265 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "cb9b4f63-70a1-4d91-b206-a9311ee3432e",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "sagemaker.config INFO - Not applying SDK defaults from location: /etc/xdg/sagemaker/config.yaml\n",
+      "sagemaker.config INFO - Not applying SDK defaults from location: /home/ec2-user/.config/sagemaker/config.yaml\n",
+      "✅ Session and role ready\n"
+     ]
+    }
+   ],
+   "source": [
+    "import sagemaker\n",
+    "import boto3\n",
+    "\n",
+    "# Create SageMaker session\n",
+    "session = sagemaker.Session()\n",
+    "\n",
+    "# Get IAM role for execution\n",
+    "role = sagemaker.get_execution_role()\n",
+    "\n",
+    "print(\"✅ Session and role ready\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "84708d4f-f8ac-47d9-bbb5-2293f1b11c14",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "------!✅ Endpoint deployed: sagemaker-scikit-learn-2025-08-04-18-47-42-323\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sagemaker.sklearn.model import SKLearnModel\n",
+    "\n",
+    "import sagemaker\n",
+    "import boto3\n",
+    "\n",
+    "# Create SageMaker session\n",
+    "session = sagemaker.Session()\n",
+    "\n",
+    "# Get IAM role for execution\n",
+    "role = sagemaker.get_execution_role()\n",
+    "\n",
+    "print(\"✅ Session and role ready\")\n",
+    "\n",
+    "!tar -czvf model.tar.gz -C model .\n",
+    "model_artifact = session.upload_data(\"model.tar.gz\", key_prefix=\"credit-risk-model\")\n",
+    "print(\"✅ Model uploaded to S3:\", model_artifact)\n",
+    "\n",
+    "# Create SageMaker model from the tar.gz you just uploaded\n",
+    "model = SKLearnModel(\n",
+    "    model_data=model_artifact,\n",
+    "    role=role,\n",
+    "    entry_point=\"inference.py\",   # Make sure this file is inside model.tar.gz\n",
+    "    framework_version=\"1.2-1\",    # must match sklearn version\n",
+    "    py_version=\"py3\",\n",
+    "    sagemaker_session=session,\n",
+    ")\n",
+    "\n",
+    "# Deploy endpoint\n",
+    "predictor = model.deploy(\n",
+    "    initial_instance_count=1,\n",
+    "    instance_type=\"ml.m5.large\"\n",
+    ")\n",
+    "\n",
+    "print(\"✅ Endpoint deployed:\", predictor.endpoint_name)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "6255bf2a-7f62-4288-b762-e0b14bbe9ad7",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Input: [22, 30000, 5000] → Prediction: {'prediction': [0], 'probabilities': [[0.6179330078003689, 0.38206699219963125]]}\n",
+      "Input: [35, 80000, 20000] → Prediction: {'prediction': [0], 'probabilities': [[0.86, 0.14]]}\n",
+      "Input: [45, 120000, 35000] → Prediction: {'prediction': [1], 'probabilities': [[0.4, 0.6]]}\n",
+      "Input: [28, 25000, 15000] → Prediction: {'prediction': [0], 'probabilities': [[0.5, 0.5]]}\n",
+      "Input: [55, 95000, 10000] → Prediction: {'prediction': [0], 'probabilities': [[0.99, 0.01]]}\n"
+     ]
+    }
+   ],
+   "source": [
+    "import boto3\n",
+    "import json\n",
+    "\n",
+    "runtime = boto3.client(\"sagemaker-runtime\")\n",
+    "endpoint_name = \"sagemaker-scikit-learn-2025-08-04-18-47-42-323\"  # replace with actual endpoint\n",
+    "\n",
+    "# Example test cases\n",
+    "test_samples = [\n",
+    "    {\"features\": [22, 30000, 5000]},   # young, low income, small loan\n",
+    "    {\"features\": [35, 80000, 20000]},  # mid-age, decent income, medium loan\n",
+    "    {\"features\": [45, 120000, 35000]}, # mature, high income, large loan\n",
+    "    {\"features\": [28, 25000, 15000]},  # young, low income, big loan\n",
+    "    {\"features\": [55, 95000, 10000]},  # older, good income, modest loan\n",
+    "]\n",
+    "\n",
+    "for sample in test_samples:\n",
+    "    response = runtime.invoke_endpoint(\n",
+    "        EndpointName=endpoint_name,\n",
+    "        ContentType=\"application/json\",\n",
+    "        Body=json.dumps(sample)\n",
+    "    )\n",
+    "    prediction = json.loads(response[\"Body\"].read())\n",
+    "    print(f\"Input: {sample['features']} → Prediction: {prediction}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "f45041fd-45b3-4671-9c8e-7e3eb8a30972",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Overwriting credit_app.py\n"
+     ]
+    }
+   ],
+   "source": [
+    "%%writefile credit_app.py\n",
+    "import streamlit as st\n",
+    "import boto3\n",
+    "import json\n",
+    "\n",
+    "# Setup SageMaker runtime\n",
+    "runtime = boto3.client(\"sagemaker-runtime\")\n",
+    "\n",
+    "# Replace with your real SageMaker endpoint name\n",
+    "ENDPOINT_NAME = \"sagemaker-scikit-learn-2025-08-04-18-47-42-323\"\n",
+    "\n",
+    "st.set_page_config(page_title=\"Credit Risk Predictor\", layout=\"centered\")\n",
+    "\n",
+    "st.title(\"💳 Credit Risk Prediction\")\n",
+    "st.write(\"Enter applicant details to predict the probability of loan default.\")\n",
+    "\n",
+    "# Input form\n",
+    "with st.form(\"credit_form\"):\n",
+    "    age = st.number_input(\"Age\", min_value=18, max_value=100, value=30)\n",
+    "    income = st.number_input(\"Annual Income ($)\", min_value=5000, max_value=500000, value=50000)\n",
+    "    loan_amount = st.number_input(\"Loan Amount ($)\", min_value=1000, max_value=200000, value=15000)\n",
+    "    submitted = st.form_submit_button(\"Predict Risk\")\n",
+    "\n",
+    "if submitted:\n",
+    "    features = [age, income, loan_amount]\n",
+    "    payload = json.dumps({\"features\": features})\n",
+    "    \n",
+    "    response = runtime.invoke_endpoint(\n",
+    "        EndpointName=ENDPOINT_NAME,\n",
+    "        ContentType=\"application/json\",\n",
+    "        Body=payload\n",
+    "    )\n",
+    "    result = json.loads(response[\"Body\"].read().decode())\n",
+    "    \n",
+    "    prediction = result[\"prediction\"][0]\n",
+    "    probabilities = result[\"probabilities\"][0]\n",
+    "    \n",
+    "    st.subheader(\"📊 Prediction Result\")\n",
+    "    st.write(f\"**Prediction:** {'Default (1)' if prediction == 1 else 'No Default (0)'}\")\n",
+    "    st.write(f\"**Probabilities:** Default = {probabilities[1]:.2f}, No Default = {probabilities[0]:.2f}\")\n",
+    "\n",
+    "    st.progress(probabilities[1])  # risk bar\n",
+    "\n",
+    "    if prediction == 1:\n",
+    "        st.error(\"⚠️ High Risk: Loan likely to default!\")\n",
+    "    else:\n",
+    "        st.success(\"✅ Low Risk: Loan unlikely to default.\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "b1b216df-9684-481f-a19e-65c793b8f957",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\n",
+      "Collecting usage statistics. To deactivate, set browser.gatherUsageStats to false.\n",
+      "\u001b[0m\n",
+      "\u001b[0m\n",
+      "\u001b[34m\u001b[1m  You can now view your Streamlit app in your browser.\u001b[0m\n",
+      "\u001b[0m\n",
+      "\u001b[34m  URL: \u001b[0m\u001b[1mhttp://0.0.0.0:8501\u001b[0m\n",
+      "\u001b[0m\n"
+     ]
+    }
+   ],
+   "source": [
+    "!streamlit run credit_app.py --server.port 8501 --server.headless true --server.address 0.0.0.0\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "id": "c0c00a73-8325-4dfd-b514-dc0813f19957",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "tail: cannot open ‘streamlit.log’ for reading: No such file or directory\n",
+      "tail: no files remaining\n"
+     ]
+    }
+   ],
+   "source": [
+    "!tail -f streamlit.log\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "d0f6d7e4-7ed0-4b98-9d74-a99419ebabde",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "conda_pytorch_p310",
+   "language": "python",
+   "name": "conda_pytorch_p310"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.14"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
