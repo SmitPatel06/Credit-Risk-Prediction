@@ -7,6 +7,7 @@ This project is a Credit Risk Prediction System that uses AWS SageMaker for mach
 learning inference and Streamlit as the frontend interface.
 Users can input applicant details such as Age, Annual Income, and Loan Amount to predict
 the probability of loan default.
+
 2. Project Structure:
 
 File Name Description:
@@ -18,6 +19,7 @@ Untitled.ipynb Jupyter Notebook (used for exploratory data analysis, model train
 experiments).
 
 3. Requirements
+
 Python Version:
 Python 3.8 or later
 Python Libraries:
@@ -50,6 +52,7 @@ Command to start the app:
 streamlit run credit_app.py
 
 5. Using the Application
+
    1. Open the app in your browser using the link provided by Streamlit.
    2. Enter the following applicant details:
     o Age
@@ -73,6 +76,7 @@ The build.sh script performs the following steps:
 
 
 7. Notes
+ 
  • AWS CLI must be configured with the correct profile and permissions to use SageMaker.
  • The following files are required for the complete workflow but are not included here:
  o train.py (model training script)
